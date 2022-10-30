@@ -9,7 +9,10 @@ import io.storage.imagestorageapp.exceptions.S3ObjectNotFoundException;
 import io.storage.imagestorageapp.file.FileService;
 import io.storage.imagestorageapp.image.Image;
 import io.storage.imagestorageapp.image.ImageRepository;
+import io.storage.imagestorageapp.notification.NotificationEvent;
 import io.storage.imagestorageapp.utils.ImageUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -18,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.net.Inet4Address;
 
 import static io.storage.imagestorageapp.constants.AwsConst.S3_BUCKET_NAME;
 
@@ -26,17 +30,13 @@ import static io.storage.imagestorageapp.constants.AwsConst.S3_BUCKET_NAME;
  * Date: 10/26/2022
  */
 @Service
+@RequiredArgsConstructor
 public class S3BucketService {
     private final AmazonS3 s3;
     private final FileService fileService;
     private final ImageRepository imageRepository;
+    private final NotificationEvent notificationEvent;
 
-
-    public S3BucketService(AmazonS3 s3, FileService fileService, ImageRepository imageRepository) {
-        this.s3 = s3;
-        this.fileService = fileService;
-        this.imageRepository = imageRepository;
-    }
 
     public HttpEntity<byte[]> downloadObject(Long imageId) {
         Image image = imageRepository.findByIdAndIsActiveTrue(imageId).orElseThrow(S3ObjectNotFoundException::new);
@@ -70,11 +70,23 @@ public class S3BucketService {
         try {
             PutObjectRequest request = new PutObjectRequest(S3_BUCKET_NAME, filename, file.getInputStream(), metadata);
             request.setMetadata(metadata);
-            PutObjectResult putObjectResult = s3.putObject(request);
+            s3.putObject(request);
+            String message = buildMessageFormMetadata(file, imageId);
+            notificationEvent.sendMessageToQueue(message);
+
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+
+    @SneakyThrows
+    private String buildMessageFormMetadata(MultipartFile file, Long imageId) {
+        return String.format("%s is uploaded to platform, size = %s. You can download image with %s link ",
+                file.getOriginalFilename(),
+                file.getSize(),
+                Inet4Address.getLocalHost().getHostAddress() + "/api/images/" + imageId + "/download");
+    }
+
 
     private void updateImageData(Long imageId, MultipartFile file, String filename) {
         Image image = imageRepository.findById(imageId).orElseThrow(S3ObjectNotFoundException::new);
