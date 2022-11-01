@@ -20,7 +20,6 @@ public class NotificationListener {
 
     private final NotificationEvent notificationService;
 
-    @Scheduled(fixedRate = 3000)
     public void readMessagesFromQueue() {
         List<Message> messages = notificationService.readMessages();
         messages.forEach(message -> notificationService.sendMessageToTopic(message.getBody()));
